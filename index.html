@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
+    <title>Ilon o'yini</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        body {
+            text-align: center;
+            background: #00464b;
+            color: #c801fa;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        canvas {
+            /* canvas size will be controlled from JS to keep a 9:16 aspect ratio */
+            background: #4d06f1;
+            margin: 0;
+            position: absolute;
+            display: block;
+            will-change: width, height, transform;
+            image-rendering: optimizeSpeed;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgb(255, 0, 0);
+        }
+        h1 { font-family: Arial, sans-serif; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer;  background: #333; color: #fff; border: none; border-radius: 5px; }
+        button:hover { background: #444; color: #fff; }
+
+        /* Boshqaruv tugmalari */
+        #controls {
+            position: absolute; /* positioned relative to viewport via JS */
+            z-index: 30;
+            display: none; /* hidden until user presses Start */
+            gap: 6px;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+        }
+        #controls button {
+            width: 60px;
+            height: 60px;
+            margin: 5px;
+            font-size: 24px;
+            cursor: pointer;
+            background: #333;
+            color: #fff;
+            border: none;
+            outline: none;
+            box-shadow: none;
+            transition: background 0.3s, transform 0.2s;
+            display: inline-block;
+            text-align: center;
+            line-height: 60px; /* Tugma ichidagi matnni markazlash */
+            font-family: Arial, sans-serif;
+            font-weight: bold;
+            border: 2px solid #fff; /* Tugma chegarasi */
+            border-top: none;
+            border-left: none;
+            border-right: none;
+            border-radius: 5px;
+        }
+        #controls button:hover {
+            background: #444;
+            color: #fff;
+            transform: scale(1.1);
+
+        }
+        /* HUD and overlay styles (Google Snake-like) */
+        #hud {
+            position: fixed;
+            top: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            color: #fff;
+            pointer-events: none;
+        }
+        .hud-card {
+            background: rgba(0,0,0,0.25);
+            padding: 8px 12px;
+            border-radius: 18px;
+            font-weight: bold;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            pointer-events: auto;
+        }
+        #overlay {
+            position: fixed;
+            z-index: 25;
+            left: 0; top: 0; right: 0; bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(2,6,23,0.45);
+            color: #fff;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            backdrop-filter: blur(4px);
+        }
+        #overlay .box {
+            background: linear-gradient(180deg,#0f1724, #0b0b2b);
+            padding: 24px 28px;
+            border-radius: 12px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+        }
+        .btn {
+            display: inline-block;
+            padding: 10px 16px;
+            border-radius: 10px;
+            background: #1f2937;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 12px;
+        }
+        .btn.primary { background: linear-gradient(180deg,#00c2a8,#00a78f); }
+        .small-muted { font-size: 12px; color: rgba(255,255,255,0.75); }
+        .option-btn { padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.06); }
+        .option-btn.active { background: linear-gradient(180deg,#1f7b68,#0e6b58); border-color: rgba(255,255,255,0.14); }
+        /* when controls are shown inside the start overlay */
+        .overlay-controls { position: static !important; display: flex !important; gap: 6px !important; margin-top: 12px; justify-content: center; }
+    </style>
+</head>
+<body>
+    <canvas id="game"></canvas>
+    <div id="hud">
+        <div class="hud-card" id="scoreDisplay">Ball: 0</div>
+        <div class="hud-card small-muted" id="bestDisplay">Best: 0</div>
+        <button id="pauseBtn" class="hud-card btn" style="pointer-events:auto;">Play</button>
+        <button id="helpBtn" class="hud-card btn" style="pointer-events:auto; margin-left:6px;">?</button>
+    </div>
+
+    <div id="overlay">
+        <div class="box">
+            <h2 style="margin:0 0 8px 0;">Ilon o'yini</h2>
+            <div class="small-muted">Swipe yoki arrow tugmalar bilan boshqaring</div>
+            <div style="height:12px;"></div>
+            <button id="startBtn" class="btn primary">Boshlash</button>
+            <div style="height:8px;"></div>
+
+    </div>
+
+    <button id="restart" style="display:none; margin-top:10px;">Qayta boshlash</button>
+
+    <!-- On-screen controls removed per user request (temporarily) -->
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+    let grid = 40; // Ilon va olma kattaligi (pixel per cell) - will be recomputed for large screens
+    // innerScale controls how much smaller the playable area is vs the canvas (0.0-1.0)
+    // make mutable so the player can choose at start
+    let innerScale = 0.78; // 78% of canvas will be used for the playable area
+    let gameArea = { x: 0, y: 0, width: 0, height: 0 }; // computed in resizeCanvas
+    let snake, dx, dy, food, score, gameOver;
+
+        const snakeHeads = [
+            'https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/Minecraft-creeper-face.jpg/500px-Minecraft-creeper-face.jpg',
+            'https://mc-heads.net/avatar/MHF_Steve',
+            'https://i.pinimg.com/236x/dc/da/6b/dcda6bb4bac8a551c7deea5a45a23bbd.jpg',
+            'https://d31sxl6qgne2yj.cloudfront.net/wordpress/wp-content/uploads/20190121140743/Minecraft-Wither-Skeleton-Head.jpg',
+            'https://minecraftfaces.com/wp-content/bigfaces/big-enderdragon-face.png',
+            'https://i.pinimg.com/736x/96/c9/bd/96c9bd41d83e8407c4c44371d61ab314.jpg',
+            'https://minotar.net/helm/069a79f444e94726a5befca90e38aaf5/512.png',
+            'https://mc-heads.net/avatar/2d7552678058720f8920bcee682ac4e7475e41e2155ae6700b2a58389f5b64f6',
+            'https://i.pinimg.com/736x/0a/c2/51/0ac2513840da22b25b4e91ec57c90ffd.jpg',
+            'https://tse1.mm.bing.net/th/id/OIP.1PfVKP2YWs0lTLvKoVu2VQHaHf?rs=1&pid=ImgDetMain&o=7&rm=3'
+        ];
+        const apples = [
+            'https://static.wikia.nocookie.net/minecraft_gamepedia/images/5/54/Golden_Apple_JE2_BE2.png',
+        ];
+    let headImg = new Image();
+    let appleImg = new Image();
+    // flags to know if images loaded successfully
+    headImg._loaded = false;
+    appleImg._loaded = false;
+    headImg.onload = function() { headImg._loaded = true; };
+    headImg.onerror = function() { headImg._loaded = false; console.warn('Head image failed to load:', headImg.src); };
+    appleImg.onload = function() { appleImg._loaded = true; };
+    appleImg.onerror = function() { appleImg._loaded = false; console.warn('Apple image failed to load:', appleImg.src); };
+        let currentHead = 0;
+        let currentApple = 0;
+        const tailColors = [
+            'lime', 'blue', '#fff', '#555555', '#c801fa', 'pink', 'brown', 'blueviolet', 'yellow', 'green', 'orange', 
+        ];
+        let currentTailColor = 0;
+
+        function initGame() {
+            // Ensure gameArea is computed
+            resizeCanvas();
+
+            // start snake in center of the playable gameArea, snapped to grid
+            const startCol = Math.floor((gameArea.width / 2) / grid);
+            const startRow = Math.floor((gameArea.height / 2) / grid);
+            const startX = gameArea.x + startCol * grid;
+            const startY = gameArea.y + startRow * grid;
+            snake = [{x: startX, y: startY}];
+
+            dx = grid; dy = 0;
+            food = {x: 0, y: 0};
+            score = 0;
+            gameOver = false;
+            // choose random head, apple and tail color at start
+            currentHead = Math.floor(Math.random() * snakeHeads.length);
+            currentApple = Math.floor(Math.random() * apples.length);
+            currentTailColor = Math.floor(Math.random() * tailColors.length);
+            placeFood();
+            document.getElementById('restart').style.display = 'none';
+        }
+
+        // Canvasni oynaga moslashtirish
+        function resizeCanvas() {
+                // Desired aspect ratio (width : height) = 9 : 16 (portrait phone)
+                const targetRatio = 9 / 16;
+                const vw = window.innerWidth;
+                const vh = window.innerHeight;
+
+                // reserve vertical space for on-screen controls (so they sit above the canvas)
+                const controlsEl = document.getElementById('controls');
+                const controlsReserve = (controlsEl ? (controlsEl.offsetHeight + 16) : 0);
+                const availableVh = Math.max(64, vh - controlsReserve);
+
+                // Fit the largest 9:16 rectangle inside the viewport minus controls area
+                let w = vw;
+                let h = Math.round(w / targetRatio);
+                if (h > availableVh) {
+                    h = availableVh;
+                    w = Math.round(h * targetRatio);
+                }
+
+            canvas.width = w;
+            canvas.height = h;
+
+            // compute adaptive grid: choose number of columns proportional to canvas width
+            (function computeGrid() {
+                // target cell around 40px on small screens; increase columns on larger screens
+                const approxCell = 40;
+                const innerW = Math.floor(w * innerScale);
+                // target columns = inner width divided by approxCell, but at least 8 cols
+                const targetCols = Math.max(8, Math.round(innerW / approxCell));
+                // compute grid so targetCols fit inside inner width
+                const newGrid = Math.max(14, Math.floor(innerW / targetCols));
+                grid = newGrid;
+            })();
+
+            // Center the canvas in the viewport (vertically within available height)
+            const leftPos = Math.round((vw - w) / 2);
+            const topPos = Math.round((availableVh - h) / 2) + Math.floor(controlsReserve/2) + 8;
+            canvas.style.left = leftPos + 'px';
+            canvas.style.top = topPos + 'px';
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+
+            // compute inner playable area (snapped to grid)
+            const maxInnerCols = Math.floor((w * innerScale) / grid);
+            const maxInnerRows = Math.floor((h * innerScale) / grid);
+            const gameWidth = Math.max(1, maxInnerCols) * grid;
+            const gameHeight = Math.max(1, maxInnerRows) * grid;
+            const parsedLeft = parseInt(canvas.style.left || '0', 10);
+            const parsedTop = parseInt(canvas.style.top || '0', 10);
+            const gameX = parsedLeft + Math.round((w - gameWidth) / 2);
+            const gameY = parsedTop + Math.round((h - gameHeight) / 2);
+            // store as absolute coordinates within the viewport
+            gameArea = { x: gameX, y: gameY, width: gameWidth, height: gameHeight };
+
+            // position on-screen controls centered above the canvas
+            if (controlsEl) {
+                const controlsWidth = controlsEl.offsetWidth || 200;
+                const ctrlLeft = leftPos + Math.round((w - controlsWidth) / 2);
+                const ctrlTop = topPos - controlsEl.offsetHeight - 8;
+                controlsEl.style.left = Math.max(8, ctrlLeft) + 'px';
+                controlsEl.style.top = Math.max(8, ctrlTop) + 'px';
+            }
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function placeFood() {
+            // place food inside the inner playable area (gameArea)
+            const cols = Math.floor(gameArea.width / grid);
+            const rows = Math.floor(gameArea.height / grid);
+            const col = Math.floor(Math.random() * cols);
+            const row = Math.floor(Math.random() * rows);
+            food.x = gameArea.x + col * grid;
+            food.y = gameArea.y + row * grid;
+            // Olma har safar joylashganda rasmni yangilash
+            updateImages();
+        }
+
+        function updateImages() {
+            // Reset the loaded flags before changing source
+            headImg._loaded = false;
+            appleImg._loaded = false;
+            headImg.src = snakeHeads[currentHead] || '';
+            appleImg.src = apples[currentApple] || '';
+        }
+        updateImages();
+
+        // UI & game control state
+        let running = false;
+        let highScore = parseInt(localStorage.getItem('snakeHigh') || '0', 10) || 0;
+        const overlayEl = document.getElementById('overlay');
+        const hudScoreEl = document.getElementById('scoreDisplay');
+        const hudBestEl = document.getElementById('bestDisplay');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const helpBtn = document.getElementById('helpBtn');
+        let selectedInnerScale = innerScale;
+
+        function updateHUD() {
+            // ensure score defined
+            if (typeof score === 'undefined' || score === null) score = 0;
+            hudScoreEl.textContent = 'Ball: ' + score;
+            hudBestEl.textContent = 'Best: ' + highScore;
+        }
+
+        function showOverlay(title, subtitle, btnText) {
+            const box = overlayEl.querySelector('.box');
+            box.innerHTML = '<h2 style="margin:0 0 8px 0;">' + title + '</h2>' +
+                            '<div class="small-muted">' + subtitle + '</div>' +
+                            '<div style="height:12px;"></div>' +
+                            '<div class="small-muted">O\'yin maydoni:</div>' +
+                            '<div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">' +
+                                '<button class="btn option-btn" data-scale="0.9">Katta</button>' +
+                                '<button class="btn option-btn" data-scale="0.78">O\'rtacha</button>' +
+                                '<button class="btn option-btn" data-scale="0.6">Kichik</button>' +
+                            '</div>' +
+                            '<div style="height:12px;"></div>' +
+                            '<div class="small-muted" style="text-align:left;line-height:1.4;margin-bottom:8px;">' +
+                                '<strong>Qanday o\'ynash:</strong><br>' +
+                                'Arrow tugmalari yoki WASD bilan (kompyuter).<br>' +
+                                'Mobil: ekranda siljitish (swipe) bilan boshqarish.<br>' +
+                                'Pauza: Escape yoki <code>p</code> tugmasi bilan pauza/ davom ettirish.<br>' +
+                                'Maqsad: Har bir olmani yeb, ilonni uzaytirish. Devorga yoki o\'z tanasiga urilmaslik kerak.' +
+                            '</div>' +
+                            '<button id="startBtn" class="btn primary">' + btnText + '</button>' +
+                            '<div style="height:8px;"></div>' +
+                            '<div class="small-muted">Google Snake uslubida — sizning kod bilan uyg\'un</div>';
+
+            overlayEl.style.display = 'flex';
+
+            // wire up option buttons
+            const optionBtns = box.querySelectorAll('.option-btn');
+            optionBtns.forEach(b => {
+                const scale = parseFloat(b.dataset.scale);
+                if (Math.abs(scale - selectedInnerScale) < 0.001) b.classList.add('active');
+                b.onclick = () => {
+                    optionBtns.forEach(x => x.classList.remove('active'));
+                    b.classList.add('active');
+                    selectedInnerScale = scale;
+                };
+            });
+
+            const startBtn = document.getElementById('startBtn');
+            startBtn.onclick = function() {
+                // apply selected inner scale before sizing and starting
+                innerScale = selectedInnerScale;
+                // show and position controls now that the game will start
+                const controlsEl = document.getElementById('controls');
+                if (controlsEl) {
+                    document.body.appendChild(controlsEl);
+                    controlsEl.style.position = 'absolute';
+                    controlsEl.style.display = 'flex';
+                }
+                // apply sizing and start
+                resizeCanvas();
+                overlayEl.style.display = 'none';
+                initGame();
+                running = true;
+                pauseBtn.textContent = 'Pause';
+            };
+            // Ensure controls are hidden while overlay visible
+            const controlsEl = document.getElementById('controls');
+            if (controlsEl) {
+                controlsEl.style.display = 'none';
+                // remove overlay-controls just in case
+                controlsEl.classList.remove('overlay-controls');
+            }
+        }
+
+        // help button should just open the start overlay (which now contains instructions)
+        if (helpBtn) helpBtn.onclick = function() { showOverlay('Ilon o\'yini', 'Swipe yoki arrow tugmalar bilan boshqaring', 'Boshlash'); };
+
+        // show overlay initially with options
+        updateHUD();
+        showOverlay('Ilon o\'yini', 'Swipe yoki arrow tugmalar bilan boshqaring', 'Boshlash');
+
+        // initialize HUD values and keep overlay visible until user starts
+        updateHUD();
+
+        function drawRoundRect(x, y, w, h, r) {
+            const min = Math.min(w, h) / 2;
+            r = Math.min(r, min);
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.arcTo(x + w, y, x + w, y + h, r);
+            ctx.arcTo(x + w, y + h, x, y + h, r);
+            ctx.arcTo(x, y + h, x, y, r);
+            ctx.arcTo(x, y, x + w, y, r);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function gameLoop() {
+            // update HUD every frame (keeps score in sync)
+            updateHUD();
+
+            if (gameOver) {
+                // update best score
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('snakeHigh', String(highScore));
+                }
+                updateHUD();
+                // show overlay with restart
+                showOverlay('Sen yutqazding!', 'Ball: ' + score, 'Qayta boshlash');
+                pauseBtn.textContent = 'Play';
+                running = false;
+                return;
+            }
+
+            // Only advance the game when running (Play state)
+            if (running) {
+                const head = {x: snake[0].x + dx, y: snake[0].y + dy};
+                snake.unshift(head);
+
+                if (head.x === food.x && head.y === food.y) {
+                    score++;
+                    checkScoreChange();
+                    placeFood();
+                } else {
+                    snake.pop();
+                }
+
+                // collision with inner gameArea bounds or self
+                if (
+                    head.x < gameArea.x || head.x >= (gameArea.x + gameArea.width) ||
+                    head.y < gameArea.y || head.y >= (gameArea.y + gameArea.height) ||
+                    snake.slice(1).some(s => s.x === head.x && s.y === head.y)
+                ) {
+                    gameOver = true;
+                }
+            }
+
+            // render frame (even when paused, so the player sees the state)
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#0b0b2b';
+            const canvasLeft = parseInt(canvas.style.left || '0', 10);
+            const canvasTop = parseInt(canvas.style.top || '0', 10);
+            const areaX = gameArea.x - canvasLeft;
+            const areaY = gameArea.y - canvasTop;
+            ctx.fillRect(areaX, areaY, gameArea.width, gameArea.height);
+
+            // draw snake tail as rounded segments
+            ctx.fillStyle = tailColors[currentTailColor];
+            const segRadius = Math.max(4, Math.round(grid * 0.18));
+            snake.slice(1).forEach(s => drawRoundRect(s.x - canvasLeft, s.y - canvasTop, grid, grid, segRadius));
+
+            // head (image or fallback)
+            if (headImg._loaded) {
+                try { ctx.drawImage(headImg, snake[0].x - canvasLeft, snake[0].y - canvasTop, grid, grid); } catch (e) { /* ignore draw errors */ }
+            } else {
+                ctx.fillStyle = '#ff0';
+                drawRoundRect(snake[0].x - canvasLeft, snake[0].y - canvasTop, grid, grid, segRadius);
+                ctx.fillStyle = '#000';
+                ctx.font = Math.max(12, Math.round(grid * 0.5)) + 'px Arial';
+                ctx.fillText('H', snake[0].x - canvasLeft + grid/4, snake[0].y - canvasTop + grid*0.7);
+            }
+
+            // food
+            if (appleImg._loaded) {
+                try { ctx.drawImage(appleImg, food.x - canvasLeft, food.y - canvasTop, grid, grid); } catch (e) { /* ignore draw errors */ }
+            } else {
+                ctx.fillStyle = 'red';
+                ctx.beginPath();
+                ctx.arc(food.x - canvasLeft + grid/2, food.y - canvasTop + grid/2, grid/2 - 4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // HUD text inside game area removed to avoid duplicate score (HUD shows score)
+        }
+        
+
+        // Ball oshganda rasmni o'zgartirish
+        function checkScoreChange() {
+            if (score > 0 && score % 3 === 0) {
+                // pick random new head/apple/tail color (allowing same index occasionally)
+                currentHead = Math.floor(Math.random() * snakeHeads.length);
+                currentApple = Math.floor(Math.random() * apples.length);
+                currentTailColor = Math.floor(Math.random() * tailColors.length);
+                updateImages();
+            }
+        }
+
+        document.addEventListener('keydown', e => {
+            if ((e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') && dx === 0) { dx = -grid; dy = 0; }
+            if ((e.key === 'ArrowUp'   || e.key.toLowerCase() === 'w') && dy === 0) { dx = 0; dy = -grid; }
+            if ((e.key === 'ArrowRight'|| e.key.toLowerCase() === 'd') && dx === 0) { dx = grid; dy = 0; }
+            if ((e.key === 'ArrowDown' || e.key.toLowerCase() === 's') && dy === 0) { dx = 0; dy = grid; }
+            // Pause/Resume with Escape or 'p'
+            if (e.key === 'Escape' || e.key.toLowerCase() === 'p') {
+                running = !running;
+                if (pauseBtn) pauseBtn.textContent = running ? 'Pause' : 'Play';
+            }
+        });
+
+        // Touch boshqaruv (swipe yoki tap)
+        let touchStartX = null, touchStartY = null;
+        canvas.addEventListener('touchstart', function(e) {
+            const t = e.touches[0];
+            touchStartX = t.clientX;
+            touchStartY = t.clientY;
+        });
+        canvas.addEventListener('touchend', function(e) {
+            if (touchStartX === null || touchStartY === null) return;
+            const t = e.changedTouches[0];
+            const dxTouch = t.clientX - touchStartX;
+            const dyTouch = t.clientY - touchStartY;
+            if (Math.abs(dxTouch) > Math.abs(dyTouch)) {
+                if (dxTouch > 30 && dx === 0) { dx = grid; dy = 0; } // o'ng
+                else if (dxTouch < -30 && dx === 0) { dx = -grid; dy = 0; } // chap
+            } else {
+                if (dyTouch > 30 && dy === 0) { dx = 0; dy = grid; } // pastga
+                else if (dyTouch < -30 && dy === 0) { dx = 0; dy = -grid; } // yuqoriga
+            }
+            touchStartX = null; touchStartY = null;
+        });
+
+        document.getElementById('restart').onclick = function() {
+            initGame();
+            // hide #no-btn if it exists
+            const noBtn = document.getElementById('no-btn');
+            if (noBtn) noBtn.style.display = 'none';
+            // hide overlay and start running
+            overlayEl.style.display = 'none';
+            running = true;
+            pauseBtn.textContent = 'Pause';
+        };
+
+        // On-screen control buttons removed temporarily to avoid blocking the game area.
+
+    initGame();
+    // gameInterval controls game speed in milliseconds (higher = slower)
+    let gameInterval = 350; // slowed down for gentler speed
+    // start main loop
+    const gameTimer = setInterval(gameLoop, gameInterval);
+
+    // attach initial UI handlers
+    const startBtnInit = document.getElementById('startBtn');
+    if (startBtnInit) startBtnInit.onclick = function() { overlayEl.style.display = 'none'; running = true; pauseBtn.textContent = 'Pause'; };
+    pauseBtn.onclick = function() { running = !running; pauseBtn.textContent = running ? 'Pause' : 'Play'; };
+    </script>
+</body>
+</html>
